@@ -1,0 +1,456 @@
+---
+title: "Dux Drop-Seq analysis workflow"
+author: "Mohamed Nadhir Djekidel"
+date: "April 19, 2018"
+output: html_document
+---
+
+
+# load required libraries
+
+```{r}
+require(dplyr)
+require(Seurat)
+require(ggplot2)
+require(ggsci)
+require(monocle)
+require(ComplexHeatmap)
+require(pheatmap)
+source("utils.R")
+```
+
+
+
+# Load general statistics 
+
+## Load mapping statistics
+
+```{r}
+genes_nbTranscripts <- list()
+
+genes_nbTranscripts[["H0"]] <- read.table("../Data/0H/genes_expr/logs/out_gene_exon_tagged.dge.summary.txt",
+                                          header = T,stringsAsFactors = F)
+genes_nbTranscripts[["H12"]] <- read.table("../Data/12H/genes_expr/logs/out_gene_exon_tagged.dge.summary.txt",
+                                           header = T,stringsAsFactors = F)
+genes_nbTranscripts[["H24"]] <- read.table("../Data/24H/genes_expr/logs/out_gene_exon_tagged.dge.summary.txt",
+                                           header = T,stringsAsFactors = F)
+genes_nbTranscripts[["H36"]] <- read.table("../Data/36H/genes_expr/logs/out_gene_exon_tagged.dge.summary.txt",
+                                           header = T,stringsAsFactors = F)
+
+
+repeats_nbTranscripts <- list()
+repeats_nbTranscripts[["H0"]] <- read.table("../Data/0H/repeats_expr/logs/out_gene_exon_tagged.dge.summary.txt",
+                                            header = T,stringsAsFactors = F)
+repeats_nbTranscripts[["H12"]] <- read.table("../Data/12H/repeats_expr/logs/out_gene_exon_tagged.dge.summary.txt",
+                                             header = T,stringsAsFactors = F)
+repeats_nbTranscripts[["H24"]] <- read.table("../Data/24H/repeats_expr/logs/out_gene_exon_tagged.dge.summary.txt",
+                                             header = T,stringsAsFactors = F)
+repeats_nbTranscripts[["H36"]] <- read.table("../Data/36H/repeats_expr/logs/out_gene_exon_tagged.dge.summary.txt",
+                                             header = T,stringsAsFactors = F)
+
+
+## change the column names, so it will not conflict with the genes ones.
+for(cls in names(repeats_nbTranscripts)){
+  colnames(repeats_nbTranscripts[[cls]])[-1] <- c("NUM_REPEAT_READS","NUM_REP_TRANSCRIPTS","NUM_REPEATS")
+}
+```
+
+# Merge genomic and repeats data
+
+```{r}
+nbTranscripts_stats_all <- list()
+
+for(cls in names(genes_nbTranscripts)){
+  # Get only cells with a barcode detected in both genes and repeats
+  nbTranscripts_stats_all[[cls]] <- merge(genes_nbTranscripts[[cls]],repeats_nbTranscripts[[cls]])
+}
+
+sapply(nbTranscripts_stats_all, nrow)
+```
+
+
+
+## Load total number of reads statisics
+
+```{r}
+
+nbreads_per_cell_stats <- list()
+
+nbreads_per_cell_stats[["H0"]] <- read.table("../Data/0H/genes_expr/out_cell_readcounts.txt.gz",header = F,stringsAsFactors = F)
+nbreads_per_cell_stats[["H12"]] <- read.table("../Data/12H/genes_expr/out_cell_readcounts.txt.gz",header = F,stringsAsFactors = F)
+nbreads_per_cell_stats[["H24"]] <- read.table("../Data/24H/genes_expr/out_cell_readcounts.txt.gz",header = F,stringsAsFactors = F)
+nbreads_per_cell_stats[["H36"]] <- read.table("../Data/36H/genes_expr/out_cell_readcounts.txt.gz",header = F,stringsAsFactors = F)
+
+
+## Add this information to the meta-data
+
+for(cls in names(nbreads_per_cell_stats)){
+  
+  colnames(nbreads_per_cell_stats[[cls]]) <- c("Total_Reads","CELL_BARCODE")
+  # Get only cells with a barcode detected in both genes and repeats
+  nbTranscripts_stats_all[[cls]] <- merge(nbTranscripts_stats_all[[cls]],nbreads_per_cell_stats[[cls]])
+  
+  nbTranscripts_stats_all[[cls]]$TimePoint <- cls
+}
+
+sapply(nbTranscripts_stats_all, nrow)
+```
+
+
+## Load genes expression
+
+```{r}
+gene_expr <- list()
+
+gene_expr[["H0"]] <- read.table("../Data/0H/genes_expr/merged_exon_tagged_clean.dge.txt.gz",header = T,stringsAsFactors = F)
+gene_expr[["H12"]] <- read.table("../Data/12H/genes_expr/merged_exon_tagged_clean.dge.txt.gz",header = T,stringsAsFactors = F)
+gene_expr[["H24"]] <- read.table("../Data/24H/genes_expr/merged_exon_tagged_clean.dge.txt.gz",header = T,stringsAsFactors = F)
+gene_expr[["H36"]] <- read.table("../Data/36H/genes_expr/merged_exon_tagged_clean.dge.txt.gz",header = T,stringsAsFactors = F)
+
+
+
+```
+
+
+
+## load repeats expression
+
+```{r}
+repeats_expr <- list()
+repeats_expr[["H0"]] <- read.table("../Data/0H/repeats_expr/merged_exon_tagged_clean.dge.txt.gz",header = T,stringsAsFactors = F)
+repeats_expr[["H12"]] <- read.table("../Data/12H/repeats_expr/merged_exon_tagged_clean.dge.txt.gz",header = T,stringsAsFactors = F)
+repeats_expr[["H24"]] <- read.table("../Data/24H/repeats_expr/merged_exon_tagged_clean.dge.txt.gz",header = T,stringsAsFactors = F)
+repeats_expr[["H36"]] <- read.table("../Data/36H/repeats_expr/merged_exon_tagged_clean.dge.txt.gz",header = T,stringsAsFactors = F)
+
+
+
+all_expr <- list()
+
+for(cls in names(gene_expr)){
+  ## select only the common genes
+  gene_expr[[cls]]  <- cbind(gene_expr[[cls]][,1], gene_expr[[cls]][,nbTranscripts_stats_all[[cls]]$CELL_BARCODE ])
+  colnames(gene_expr[[cls]])[1] <- "GENE"
+  
+  ## select only the common transcripts
+  repeats_expr[[cls]]  <- cbind(repeats_expr[[cls]][,1], repeats_expr[[cls]][,nbTranscripts_stats_all[[cls]]$CELL_BARCODE ])
+  colnames(repeats_expr[[cls]])[1] <- "GENE"
+  
+  all_expr[[cls]] <- rbind(gene_expr[[cls]], repeats_expr[[cls]])
+  rownames(all_expr[[cls]]) <- all_expr[[cls]]$GENE
+  all_expr[[cls]]$GENE <- NULL
+}
+
+
+
+```
+
+
+
+# Create Seurat objects
+
+```{r}
+
+dux_sobjs <- list()
+
+for(cls in names(gene_expr)){
+  print(cls)
+  #toUse <- nbTranscripts_stats_all[[cls]] %>% filter(NUM_REP_TRANSCRIPTS + NUM_TRANSCRIPTS >=800)
+  toUse <- nbTranscripts_stats_all[[cls]] %>% filter(NUM_TRANSCRIPTS >=0)
+  
+  tmp_expr <- all_expr[[cls]][,toUse$CELL_BARCODE]
+  
+  colnames(tmp_expr) <- paste0(cls,"_",colnames(tmp_expr))
+  rownames(nbTranscripts_stats_all[[cls]]) <-paste0(cls,"_",nbTranscripts_stats_all[[cls]]$CELL_BARCODE)
+  
+  
+  
+  dux_sobjs[[cls]] <- CreateSeuratObject(raw.data = tmp_expr,
+                                        min.cells = 3,
+                                        min.genes = 1,
+                                        project = cls,
+                                        meta.data = nbTranscripts_stats_all[[cls]],
+                                        normalization.method = "LogNormalize")
+  
+  
+  meta_genes <- grep("mt-",rownames(dux_sobjs[[cls]]@raw.data))
+  
+  nb_mito <- colSums(dux_sobjs[[cls]]@raw.data[meta_genes,])/colSums(dux_sobjs[[cls]]@raw.data)
+  
+  
+  dux_sobjs[[cls]]@meta.data$percent.mito <- nb_mito
+  
+  dux_sobjs[[cls]] <- SubsetData(dux_sobjs[[cls]],subset.name = "percent.mito",accept.high = 0.1)
+}
+dux_sobjs
+```
+
+## Merge the cells from all the time points
+
+```{r}
+
+dux_mrg_sobjs <- dux_sobjs[[1]]
+
+for(i in 2:length(dux_sobjs)){
+    print(paste0("Merging with",names(dux_sobjs)[i]))
+    dux_mrg_sobjs <- MergeSeurat(dux_mrg_sobjs,dux_sobjs[[i]],
+                                 min.cells = 3,
+                                 min.genes = 1,do.normalize = F,
+                                 names.delim = "")
+}
+
+dux_mrg_sobjs <- SetIdent(dux_mrg_sobjs,ident.use = dux_mrg_sobjs@meta.data$TimePoint)
+
+#Just to create the data and scale.data slots
+dux_mrg_sobjs <- NormalizeData(dux_mrg_sobjs,scale.factor = 1e4)
+dux_mrg_sobjs <- ScaleData(dux_mrg_sobjs,vars.to.regress = c("percent.mito","NUM_GENIC_READS","NUM_REPEAT_READS"))
+
+
+dir.create("Expr_DATA")
+exprs = dux_mrg_sobjs@raw.data
+save(exprs, file="Expr_DATA/merged_counts.RData")
+
+meta.data <- dux_mrg_sobjs@meta.data
+save(meta.data, file="Expr_DATA/meta.data.RData")
+```
+
+
+# create SingleCellExperiment object
+```{r}
+require(scater)
+exprs <- as.matrix(exprs)
+colnames(exprs) <- NULL
+scset <- SingleCellExperiment(assays = list(counts=exprs), colData= meta.data )
+
+toKeep <- rowSums(counts(scset)>0)> 0
+```
+
+## Claculate QC metrics
+
+```{r}
+scset <- calculateQCMetrics(scset)
+```
+
+## Do PCA and detect outliers
+
+```{r}
+scset <- plotPCA(
+    scset,
+    size_by = "Total_Reads", 
+    shape_by = "TimePoint",
+    pca_data_input = "pdata",
+    detect_outliers = TRUE,
+    return_SCE = TRUE
+)
+```
+
+# Use scran for normalization
+
+```{r}
+#BiocInstaller::biocLite("scran")
+require(scran)
+
+
+scset <- computeSumFactors(scset)
+summary(sizeFactors(scset))
+scset <- normalise(scset)
+```
+
+## Detect variable genes
+
+```{r}
+alt.fit <- trendVar(scset, use.spikes=FALSE) 
+alt.decomp <- decomposeVar(scset, alt.fit)
+save(alt.decomp,file="alt.decomp.RData")
+```
+
+# Get normalized values
+```{r}
+scset_norm <- logcounts(scset)
+save(scset_norm,file="scset_norm.RData")
+```
+
+# Remove mito and ribo-genes
+```{r}
+removeMitoandRiboGenes_raw <- function(sobj){
+  
+  pos_mito <- grep("^mt-",rownames(sobj@raw.data),value = T)
+  pos_ribo <- grep("^Rps",rownames(sobj@raw.data),value = T)
+  pos_hb <- grep("^Hb.-.*",rownames(sobj@raw.data),value = T)
+  
+  sobj@raw.data <- sobj@raw.data[!rownames(sobj@raw.data) %in% c(pos_mito,pos_ribo,pos_hb),]
+  
+  #sobj@raw.data <- sobj@raw.data[, colnames(sobj@data)]
+  
+  # remove genes not expressed
+  nbExpr <- rowSums(as.matrix(sobj@raw.data))
+  
+  sobj@raw.data <- sobj@raw.data[nbExpr >0,]
+  
+  #sobj@data <- LogNormalize(sobj@raw.data,scale.factor = 1e6)
+  
+  sobj
+}
+
+
+SeuratToSummarizedExperiment <- function(sobj){
+  require(SingleCellExperiment)
+  
+  counts <- as.matrix(sobj@raw.data[rownames(sobj@data), colnames(sobj@data)])
+  
+  rData <- data.frame(gene_names=rownames(counts))
+  cData <- sobj@meta.data
+  
+  sce <- SingleCellExperiment(
+    assays = list(counts = counts),
+    rowData = rData,
+    colData = cData
+  )
+  
+  return(sce)
+}
+
+```
+
+
+
+```{r}
+dux_mrg_sobjs2 <- dux_mrg_sobjs
+
+dux_mrg_sobjs2@data <- scset_norm
+
+dux_mrg_sobjs2 <- removeMitoandRiboGenes_raw(dux_mrg_sobjs2)
+dux_mrg_sobjs2 <- removeMitoandRiboGenes(dux_mrg_sobjs2)
+
+
+dux_mrg_sobjs2 <-ScaleData(dux_mrg_sobjs2)
+
+var.genes <- subset( alt.decomp, mean > log(1.5) & FDR < 1e-3)
+
+dux_mrg_sobjs2 <- RunPCA(dux_mrg_sobjs2,pc.genes = rownames(var.genes),pcs.compute = 30)
+```
+
+
+```{r}
+dux_mrg_sobjs2 <- JackStraw(dux_mrg_sobjs2,num.pc = 30)
+JackStrawPlot(dux_mrg_sobjs2,PCs = 1:30)
+```
+
+```{r}
+dux_mrg_sobjs2 <- RunTSNE(dux_mrg_sobjs2,dims.use =c(1:8))
+TSNEPlot(dux_mrg_sobjs2,colors.use = ggsci::pal_d3()(4))
+```
+
+```{r}
+dux_mrg_sobjs2 <- FindClusters(dux_mrg_sobjs2,dims.use = 1:11,resolution = 0.4)
+dux_mrg_sobjs2 <- BuildClusterTree(dux_mrg_sobjs2,do.reorder = T,reorder.numeric = T,pcs.use = 1:11)
+
+dux_mrg_sobjs2 <- RenameIdent(dux_mrg_sobjs2,old.ident.name = 5,new.ident.name = 4)
+
+TSNEPlot(dux_mrg_sobjs2,colors.use = ggsci::pal_locuszoom()(4),do.label = T,label.size = 6,pt.size = 0.9)
+```
+
+
+
+## change clusters identities
+
+```{r}
+newIdent <- as.character(dux_mrg_sobjs2@ident)
+newIdent[as.character(dux_mrg_sobjs2@ident)=='4'] <- "1"
+newIdent[as.character(dux_mrg_sobjs2@ident)=='2'] <- "2"
+newIdent[as.character(dux_mrg_sobjs2@ident)=='3'] <- "3"
+newIdent[as.character(dux_mrg_sobjs2@ident)=='1'] <- "4"
+dux_mrg_sobjs2 <- SetIdent(dux_mrg_sobjs2,ident.use = newIdent)
+
+dux_mrg_sobjs2@meta.data$tree.ident <- as.character(dux_mrg_sobjs2@ident)
+TSNEPlot(dux_mrg_sobjs2,colors.use = ggsci::pal_locuszoom()(4),do.label = T,label.size = 6,pt.size = 0.9)
+```
+
+
+```{r fig.height=8, fig.width=12}
+mrks2 <- FindAllMarkers(dux_mrg_sobjs2,,only.pos = T,
+                        test.use = "negbinom",latent.vars = c("Total_Reads","percent.mito"))
+
+
+
+mrks2_filtr <- mrks2[!grepl("mt-",mrks2$gene),]
+
+mrks2_filtr <- subset(mrks2_filtr, p_val_adj < 0.01)
+
+
+pdf("Cluster_Markers_heatmap.pdf",width=12,height = 8)
+PlotMarketGenesHeatmap(dux_mrg_sobjs2,
+                       sobj_mrks = mrks2_filtr,
+                       pct.1.thr = 0.7,
+                       pct.2.thr = 0.3,
+                       is.pval = T,nbGenes = 10,
+                       cols = ggsci::pal_locuszoom()(4),
+                       additional_markers = c("Zscan4a","SynDux","TdTomato","Pou5f1","Sox2","Nanog","Myc"))
+dev.off()
+```
+
+
+# Merge clusters 1 & 2
+
+```{r}
+newIdent = as.character(dux_mrg_sobjs2@ident)
+newIdent[newIdent %in% c("1","2")] <- "1"
+newIdent[newIdent %in% c("3")] <- "2"
+newIdent[newIdent %in% c("4")] <- "3"
+
+dux_mrg_sobjs2@meta.data$old.ident = dux_mrg_sobjs2@ident
+
+dux_mrg_sobjs2 <- SetIdent(dux_mrg_sobjs2,ident.use = newIdent)
+```
+
+
+```{r fig.height=8, fig.width=12}
+
+dux_mrg_proj <- dux_mrg_sobjs2@dr$pca@cell.embeddings[,1:11]
+
+save(dux_mrg_proj,file='dux_mrg_proj.RData')
+
+dux_mrg_proj_umap = uwot::tumap(dux_mrg_proj,n_threads = 4,verbose = T,n_neighbors = 50)
+
+load("dux_mrg_proj_umap.RData")
+rownames(dux_mrg_proj_umap) <- rownames(dux_mrg_proj)
+colnames(dux_mrg_proj_umap) <- paste0("umap_",1:2)
+
+dux_mrg_sobjs2 <- SetDimReduction(object = dux_mrg_sobjs2, 
+                                               reduction.type = "umap", 
+                                               slot = "cell.embeddings", 
+                                               new.data = dux_mrg_proj_umap)
+
+dux_mrg_sobjs2 <- SetDimReduction(object = dux_mrg_sobjs2, 
+                                               reduction.type = "umap", 
+                                               slot = "key", 
+                                               new.data = "umap_")
+
+
+DimPlot(dux_mrg_sobjs2,reduction.use = "umap",cols.use =brewer.pal(3,"Dark2"),do.label = T,label.size = 6,pt.size = 0.9 )
+```
+
+
+## Find Cluster markers
+
+```{r fig.height=8, fig.width=12}
+# mrks2 <- FindAllMarkers(dux_mrg_sobjs2,only.pos = T,
+#                         test.use = "negbinom",latent.vars = c("Total_Reads"))
+
+mrks2 <- FindAllMarkers(dux_mrg_sobjs2,only.pos = T,test.use = "bimod")
+
+mrks2_filtr <- mrks2[!grepl("mt-",rownames(mrks2)),]
+
+
+pdf("Cluster_Markers_heatmap2.pdf",width=12,height = 10)
+PlotMarketGenesHeatmap(dux_mrg_sobjs2,
+                       sobj_mrks = mrks2_filtr,
+                       pct.1.thr = 0.7,
+                       pct.2.thr = 0.6,
+                       is.pval = T,nbGenes = 20,
+                       cols = brewer.pal(3,"Dark2"),
+                       additional_markers = c("Zscan4a","SynDux","TdTomato","Pou5f1","Sox2","Nanog","Myc"))
+dev.off()
+```
+
+
+
