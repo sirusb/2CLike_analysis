@@ -5,7 +5,7 @@
 #Download : mm9_repeatmasker_clean.txt
 
 # Genereate pseudo-genome
-python creatermskPseudo.py mm9_repeatmasker_clean.txt ../fasta/mm9_withRandom.fa rms_Pseudo_out
+python creatermskPseudo.py mm9_repeatmasker_clean.txt mm9.fa rms_Pseudo_out
 
 cd  rms_Pseudo_out
 
