@@ -1,0 +1,4 @@
+ChrSynDux       rtracklayer     gene    50      2138    .       +       .       gene_id "SynDux"; gene_name "SynDux";
+ChrSynDux       rtracklayer     exon    50      2138    .       +       .       gene_id "SynDux"; gene_name "SynDux";transcript_id "SynDux"; exon_number "1";transcript_id "SynDux"; exon_number "1"; exon_id "SynDux_exon";
+ChrTdTomato     rtracklayer     gene    50      1481    .       +       .       gene_id "rtraklayer"; gene_name "TdTomato";
+ChrTdTomato       rtracklayer     exon    50      1481    .       +       .       gene_id "TdTomato"; gene_name "TdTomato";transcript_id "TdTomato"; exon_number "1";transcript_id "TdTomato"; exon_number "1"; exon_id "TdTomato_exon";
