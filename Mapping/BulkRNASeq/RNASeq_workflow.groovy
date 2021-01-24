@@ -180,13 +180,12 @@ TagWithExons = {
       desc: "Use dropseqtool to mark reads that map overlap with exons",
       author: "djek.nad@gmail.com"
 
-        def AnnoFile="/home/nadhir/genomes/mm10/STAR_SynDux_tdTomato_INDEX/GRCm38.85_SynDux_TdTomato.refFlat"
         produce("${branch.name}/${branch.name}Aligned.sortedByCoord.out_exon_tagged.bam"){
                 exec """
                         $DropSeqTools/TagReadWithGeneExon
                                         I=${input}
                                         O=${branch.name}/${branch.name}Aligned.sortedByCoord.out_exon_tagged.bam
-                                        ANNOTATIONS_FILE=${AnnoFile}
+                                        ANNOTATIONS_FILE=${genome_refFlat}
                                         TAG=GE
                 ""","TagWithExons"
         }
